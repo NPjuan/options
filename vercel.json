@@ -6,6 +6,9 @@
       "maxDuration": 30
     }
   },
+  "rewrites": [
+    { "source": "/", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

@@ -9,11 +9,11 @@
 ```bash
 git clone git@github.com:NPjuan/options.git
 cd options
-npm start          # 等价于 node server.js
+npm run dev        # 等价于 node server.js
 # 浏览器打开 http://localhost:8848
 ```
 
-需要 Node 18+。如需换端口：`PORT=9000 npm start`
+需要 Node 18+。如需换端口：`PORT=9000 npm run dev`
 
 ## 运行测试
 
@@ -44,7 +44,7 @@ vercel --prod   # 生产环境
 
 两种部署形态的分工：
 
-| | 本地 (`npm start`) | Vercel |
+| | 本地 (`npm run dev`) | Vercel |
 |---|---|---|
 | 静态文件 | `server.js` 托管 | 平台 CDN 托管 |
 | `/api/chain` | `server.js` 路由 | `api/chain.js` 函数 |
