@@ -4,9 +4,10 @@
   "description": "美股期权模拟交易终端 — 接入 CBOE 官方延迟报价的真实期权链，支持模拟下单、持仓盯市、组合希腊字母与情景压力测试",
   "private": true,
   "type": "commonjs",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "dev": "node server.js",
-    "serve": "node server.js",
     "test": "node test/verify.js && node test/acct-test.js && node test/cal-test.js && node test/api-test.js",
     "test:math": "node test/verify.js",
     "test:account": "node test/acct-test.js",

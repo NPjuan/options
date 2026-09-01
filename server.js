@@ -110,7 +110,19 @@ const server = http.createServer(async (req, res) => {
   return serveStatic(req, res, u.pathname);
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+/**
+ * 监听地址按环境区分：
+ *   - 线上（Vercel）：必须监听 0.0.0.0，否则平台无法把流量转进来
+ *   - 本地开发：只绑回环地址，避免把服务暴露到局域网
+ */
+const IS_HOSTED = Boolean(process.env.VERCEL || process.env.NOW_REGION);
+const HOST = IS_HOSTED ? '0.0.0.0' : '127.0.0.1';
+
+server.listen(PORT, HOST, () => {
+  if (IS_HOSTED) {
+    console.log(`options-sim listening on ${HOST}:${PORT}`);
+    return;
+  }
   console.log(`\n  美股期权模拟器已启动`);
   console.log(`  ➜  http://localhost:${PORT}\n`);
   console.log(`  数据源：CBOE 官方延迟报价（约 15 分钟延迟）`);
