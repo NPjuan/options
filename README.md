@@ -22,9 +22,47 @@ npm test           # 全部测试
 npm run test:math      # 定价引擎（Hull 教科书基准、平价关系、希腊字母 vs 数值微分）
 npm run test:account   # 账务（加权均价、反向换仓、现金守恒、到期结算）
 npm run test:calendar  # 日历价差多到期日损益
+npm run test:api       # Serverless 函数（含 Vercel 响应体上限校验）
 ```
 
-测试全部离线运行，不需要联网。
+前三个测试完全离线；`test:api` 会真实请求 CBOE 以验证大标的的响应体积。
+
+## 部署到 Vercel
+
+```bash
+npm i -g vercel
+vercel          # 预览环境
+vercel --prod   # 生产环境
+```
+
+或在 Vercel 网页端直接 Import 这个 GitHub 仓库，无需任何配置——
+零依赖、无构建步骤，识别为静态站点 + Serverless 函数即可。
+
+**不需要设置 PORT。** Vercel 是 serverless 架构，没有常驻进程，
+`server.js` 里的 `listen()` 不会被执行，端口概念不存在。
+请求由 `api/` 目录下的函数处理，平台自行分配路由。
+
+两种部署形态的分工：
+
+| | 本地 (`npm start`) | Vercel |
+|---|---|---|
+| 静态文件 | `server.js` 托管 | 平台 CDN 托管 |
+| `/api/chain` | `server.js` 路由 | `api/chain.js` 函数 |
+| 数据逻辑 | `lib/cboe.js` | `lib/cboe.js`（同一份） |
+| 缓存 | 进程内存 20 秒 | 边缘 CDN `s-maxage=20` |
+
+数据层抽在 `lib/cboe.js`，两种形态共用同一份实现，避免各自维护而逐渐漂移。
+
+### 部署时踩到的坑
+
+**Serverless 函数必须 gzip。** Vercel 单次响应体上限 4.5MB，而 SPX
+精简后的 JSON 实测 **5.38MB**，直接返回会失败。gzip 后降到 1.15MB
+（压缩比约 4.7x）安全通过。本地 `server.js` 一直有 gzip，所以这个问题
+在本地开发时完全不会暴露 —— `test/api-test.js` 里有针对此项的断言。
+
+**冷启动与缓存。** serverless 实例会被回收，模块级内存缓存只在同一热实例内
+有效。因此主要依赖 `s-maxage` 让边缘节点缓存，把重复请求挡在 CBOE 之前；
+`stale-while-revalidate` 避免缓存过期瞬间出现空窗。
 
 ## 数据来源
 
@@ -158,16 +196,24 @@ Black-76 远期定价，能自动吸收股息、借券成本与快照错配，�
 ## 文件结构
 
 ```
-server.js            数据代理 + 静态服务（零依赖）
+lib/cboe.js          CBOE 数据层：抓取、解析、精简、缓存（两种部署形态共用）
+
+server.js            本地开发服务：静态托管 + API 路由
+api/chain.js         Vercel Serverless 函数：期权链（含 gzip 压缩）
+api/health.js        Vercel Serverless 函数：健康检查
+vercel.json          部署配置（函数内存与超时）
+
 index.html           页面结构
 style.css            样式（涨红跌绿）
 js/optionmath.js     BS 定价、希腊字母、IV 反解、损益计算
 js/account.js        账户、下单撮合、持仓、盯市、持久化
 js/charts.js         Canvas 手绘图表
 js/app.js            界面逻辑与状态管理
+
 test/verify.js       定价引擎测试
 test/acct-test.js    账务逻辑测试
 test/cal-test.js     多到期日损益测试
+test/api-test.js     Serverless 函数测试
 ```
 
 ## 免责声明
