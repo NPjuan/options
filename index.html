@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>美股期权模拟交易终端</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff4d4f'/%3E%3Ctext x='16' y='23' font-size='19' font-weight='bold' text-anchor='middle' fill='white' font-family='monospace'%3EO%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= 顶部栏 ================= -->
+  <div class="topbar">
+    <div class="logo">
+      <span class="logo-badge">OPT</span>
+      <span>期权模拟器</span>
+    </div>
+
+    <div class="search-box">
+      <input id="symInput" placeholder="搜索标的 (AAPL / SPY / TSLA)" autocomplete="off" spellcheck="false">
+      <div class="suggest" id="suggest" style="display:none"></div>
+    </div>
+
+    <div class="quote-strip" id="quoteStrip"></div>
+
+    <div class="acct-strip">
+      <div class="acct-item">
+        <div class="lbl">总权益</div>
+        <div class="val num" id="hdrEquity">—</div>
+      </div>
+      <div class="acct-item">
+        <div class="lbl">总盈亏</div>
+        <div class="val num" id="hdrPnl">—</div>
+      </div>
+      <div class="acct-item">
+        <div class="lbl">可用现金</div>
+        <div class="val num" id="hdrCash">—</div>
+      </div>
+      <button class="btn btn-sm" id="btnSettings">设置</button>
+    </div>
+  </div>
+
+  <!-- ================= 主体 ================= -->
+  <div class="main">
+
+    <!-- ---------- 左侧：期权链 ---------- -->
+    <div class="center">
+      <div class="expiry-bar" id="expiryBar"></div>
+
+      <div class="chain-toolbar">
+        <label><input type="checkbox" id="cbNearAtm" checked> 仅显示平值附近</label>
+        <label>范围 ±<input type="number" id="atmRange" value="15" min="2" max="60" style="width:44px"> %</label>
+        <label><input type="checkbox" id="cbGreeks" checked> 希腊字母</label>
+        <label><input type="checkbox" id="cbOi"> 成交量/持仓量</label>
+        <label>定价 IV
+          <select id="ivSource">
+            <option value="market">市场 IV</option>
+            <option value="mine">自算 IV</option>
+          </select>
+        </label>
+        <span style="flex:1"></span>
+        <span class="dim num" id="chainMeta"></span>
+      </div>
+
+      <div class="chain-wrap" id="chainWrap">
+        <div class="loading"><div class="spinner"></div><div>正在加载期权链…</div></div>
+      </div>
+    </div>
+
+    <!-- ---------- 右侧：下单 / 持仓 / 风险 ---------- -->
+    <div class="sidebar">
+      <div class="tabs">
+        <button class="tab active" data-pane="paneTrade">下单</button>
+        <button class="tab" data-pane="panePos">持仓<span class="tab-badge" id="posCount" style="display:none">0</span></button>
+        <button class="tab" data-pane="paneRisk">风险</button>
+        <button class="tab" data-pane="paneStrat">策略</button>
+        <button class="tab" data-pane="paneLog">流水</button>
+      </div>
+
+      <div class="tab-body">
+
+        <!-- 下单 -->
+        <div class="pane active" id="paneTrade">
+          <div id="orderArea">
+            <div class="empty">
+              点击左侧期权链中的<br><b>买价 / 卖价</b>单元格<br>即可选择合约下单
+            </div>
+          </div>
+          <div id="chainStats"></div>
+        </div>
+
+        <!-- 持仓 -->
+        <div class="pane" id="panePos">
+          <div id="posSummary"></div>
+          <div class="sec-title">
+            <span>当前持仓</span>
+            <span>
+              <button class="btn btn-sm" id="btnSettle">结算到期</button>
+              <button class="btn btn-sm" id="btnCloseAll">全部平仓</button>
+            </span>
+          </div>
+          <div id="posTable"></div>
+        </div>
+
+        <!-- 风险 -->
+        <div class="pane" id="paneRisk">
+          <div id="riskArea"></div>
+        </div>
+
+        <!-- 策略 -->
+        <div class="pane" id="paneStrat">
+          <div class="sec-title"><span>一键构建策略</span></div>
+          <div class="hint" style="padding:0 12px 6px">
+            以当前到期日与平值行权价为基准自动选腿；点击后可在弹窗中调整张数与行权价间距。
+          </div>
+          <div class="strat-list" id="stratList"></div>
+        </div>
+
+        <!-- 流水 -->
+        <div class="pane" id="paneLog">
+          <div id="statsArea"></div>
+          <div class="sec-title"><span>成交流水</span></div>
+          <div id="logTable"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 状态栏 ================= -->
+  <div class="statusbar">
+    <span><span class="dot" id="statusDot"></span> <span id="statusText">就绪</span></span>
+    <span id="statusSrc">数据源：CBOE 延迟报价</span>
+    <span id="statusAsOf"></span>
+    <span style="flex:1"></span>
+    <span id="statusRates"></span>
+    <span id="statusRefresh"></span>
+  </div>
+</div>
+
+<!-- ================= 设置弹窗 ================= -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal">
+    <h3>账户与模拟参数</h3>
+    <div class="fld">
+      <label>初始资金（美元）</label>
+      <input type="number" id="setCash" min="1000" step="1000">
+    </div>
+    <div class="fld">
+      <label>每张期权佣金（美元）</label>
+      <input type="number" id="setComm" min="0" step="0.05">
+    </div>
+    <div class="fld">
+      <label>单笔最低佣金（美元）</label>
+      <input type="number" id="setMinComm" min="0" step="0.1">
+    </div>
+    <div class="fld">
+      <label>成交价模式（滑点）</label>
+      <select id="setSlip">
+        <option value="mid">中间价（理想，无价差成本）</option>
+        <option value="aggressive">吃对手价（真实，承担全部买卖价差）</option>
+        <option value="passive">挂单价（乐观，假设被动成交）</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>无风险利率（年化 %）</label>
+      <input type="number" id="setRate" step="0.05">
+    </div>
+    <div class="hint">
+      提示：期权买卖价差往往是模拟与实盘差距最大的来源。若想贴近真实成交，建议选择「吃对手价」。
+    </div>
+    <div class="modal-btns">
+      <button class="btn" id="btnResetAcct">重置账户</button>
+      <button class="btn" id="btnSetCancel">取消</button>
+      <button class="btn btn-primary" id="btnSetSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 策略弹窗 ================= -->
+<div class="modal-bg" id="stratModal">
+  <div class="modal">
+    <h3 id="stratTitle">构建策略</h3>
+    <div id="stratBody"></div>
+    <div class="modal-btns">
+      <button class="btn" id="btnStratCancel">取消</button>
+      <button class="btn btn-primary" id="btnStratExec">一键建仓</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-wrap"></div>
+
+<script src="js/optionmath.js"></script>
+<script src="js/account.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

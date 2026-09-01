@@ -1,0 +1,34 @@
+{
+  "name": "us-options-simulator",
+  "version": "1.0.0",
+  "description": "美股期权模拟交易终端 — 接入 CBOE 官方延迟报价的真实期权链，支持模拟下单、持仓盯市、组合希腊字母与情景压力测试",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/verify.js && node test/acct-test.js && node test/cal-test.js",
+    "test:math": "node test/verify.js",
+    "test:account": "node test/acct-test.js",
+    "test:calendar": "node test/cal-test.js"
+  },
+  "keywords": [
+    "options",
+    "black-scholes",
+    "greeks",
+    "implied-volatility",
+    "cboe",
+    "trading-simulator",
+    "期权",
+    "模拟交易"
+  ],
+  "author": "NPjuan",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/NPjuan/options.git"
+  }
+}

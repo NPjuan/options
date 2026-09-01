@@ -1,0 +1,28 @@
+# 依赖（本项目零第三方依赖，此项仅防误提交）
+node_modules/
+package-lock.json
+
+# 日志
+*.log
+npm-debug.log*
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 环境变量
+.env
+.env.local
+
+# WorkBuddy 会话数据
+.workbuddy/
+
+# 临时文件
+tmp/
+*.tmp
