@@ -19,7 +19,28 @@ const { URL } = require('url');
 const cboe = require('./lib/cboe');
 
 const PORT = Number(process.env.PORT || 8848);
-const ROOT = __dirname;
+
+/**
+ * 静态资源根目录。
+ *
+ * 托管平台打包后，工作目录与 __dirname 不一定等于仓库根，
+ * 因此逐个候选目录探测 index.html 的实际位置，
+ * 避免因路径假设错误导致全站静态资源 404。
+ */
+const ROOT = (() => {
+  const candidates = [
+    __dirname,
+    process.cwd(),
+    path.join(process.cwd(), 'options-sim'),
+    '/var/task',
+  ];
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(path.join(dir, 'index.html'))) return dir;
+    } catch (e) { /* 忽略不可访问的候选路径 */ }
+  }
+  return __dirname;
+})();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -100,8 +121,11 @@ const server = http.createServer(async (req, res) => {
   if (u.pathname === '/api/health') {
     return sendJSON(res, 200, {
       ok: true,
-      mode: 'local',
+      mode: process.env.VERCEL ? 'hosted' : 'local',
       port: PORT,
+      // 暴露静态根目录与探测结果，便于排查静态资源 404
+      root: ROOT,
+      staticOk: fs.existsSync(path.join(ROOT, 'index.html')),
       cached: cboe.cacheSize(),
       time: new Date().toISOString(),
     }, ae);
