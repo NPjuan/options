@@ -1,5 +1,26 @@
 /**
- * 美股期权模拟器 — 主应用
+ * 美股期权模拟器 — 主应用（界面层）
+ *
+ * ── 文件地图 ────────────────────────────────────────────────────
+ *   状态 S              单一状态源：期权链快照、选中合约、账户、情景参数
+ *   工具函数            格式化、tpl 模板、定价参数校准
+ *   数据加载            loadChain()：拉取并写入 S
+ *   渲染 render*        8 个区块，各自只读 S、只写自己那块 DOM
+ *   刷新调度 refresh    按「变化源」决定重画哪些区块（见该处注释）
+ *   事件委托            initDelegatedEvents()：容器上绑一次
+ *   策略模板 STRATEGIES 声明式配置，新增策略只改这个数组
+ *
+ * ── 三条约定（改动时请遵守）────────────────────────────────────
+ *   1. 渲染函数只读 S，不改 S。状态变更走事件处理器，改完调 refresh.*
+ *   2. 不要退回 renderAll() 式的全量重画。新增区块挂到对应的
+ *      refresh 入口下 —— 全量重画会丢滚动位置，也会浪费图表重绘。
+ *   3. 反复重建的容器内，点击一律走事件委托，不要逐元素绑 onclick，
+ *      否则重建后极易出现「点击静默失效」。
+ *
+ * ── 关于框架 ──────────────────────────────────────────────────
+ *   本层刻意保持零依赖：定价、账务、图表都在独立模块中且有测试覆盖，
+ *   与界面实现无关。若将来要迁到 Preact/Vue，替换范围仅限本文件的
+ *   render* 部分，S 与 refresh 的分层可直接映射为组件 props 与状态。
  */
 (function () {
   'use strict';
@@ -43,6 +64,37 @@
   const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : 'dim');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /**
+   * HTML 模板标签函数 —— 插值默认转义。
+   *
+   *   tpl`<div title="${name}">${count} 张</div>`
+   *
+   * 相比手工 '…' + esc(x) + '…' 拼接，好处是转义不会漏写，
+   * 且模板字符串可以多行书写，结构一眼能看出来。
+   *
+   * 命名说明：叫 tpl 而不是社区惯例的 html，是因为本文件多数
+   * render 函数内部都有局部变量 `html` 用于累积字符串，
+   * 同名会被遮蔽，留下难以察觉的陷阱。
+   *
+   * 若某处确实要插入已构造好的 HTML 片段（例如子模板的返回值），
+   * 用 raw() 包一层显式表明「我知道这是 HTML，不要转义」。
+   */
+  function tpl(strings, ...values) {
+    return strings.reduce((out, str, i) => {
+      if (i === 0) return str;
+      const v = values[i - 1];
+      let piece;
+      if (v == null || v === false) piece = '';          // 便于写 ${cond && ...}
+      else if (v && v.__raw) piece = v.value;            // 显式标记的原始 HTML
+      else if (Array.isArray(v)) piece = v.join('');     // 子片段数组，逐项已自行处理
+      else piece = esc(v);
+      return out + piece + str;
+    }, '');
+  }
+
+  /** 标记一段字符串为「已是安全 HTML」，跳过转义 */
+  const raw = (value) => ({ __raw: true, value });
 
   function bigNum(v) {
     if (!v) return '0';
@@ -172,7 +224,7 @@
         S.selected = null;
       }
       $('symInput').value = '';
-      renderAll();
+      refresh.all();
       setStatus('已加载 ' + data.contractCount + ' 个合约');
       $('statusAsOf').textContent = '行情时点：' + (data.underlying.lastTradeTime || data.timestamp || '—') + ' (美东)';
     } catch (e) {
@@ -228,14 +280,7 @@
         + (isMonthly ? '' : ' weekly') + '" data-i="' + i + '">'
         + e.expiry.slice(5) + '<span class="dte">' + e.dte + 'd</span></button>';
     }).join('');
-
-    $('expiryBar').querySelectorAll('.exp-chip').forEach(b => {
-      b.onclick = () => {
-        S.expiryIdx = +b.dataset.i;
-        S.selected = null;
-        renderAll();
-      };
-    });
+    // 点击同样走 initDelegatedEvents() 的统一委托，见文件末尾。
   }
 
   /* ================================================================== *
@@ -376,15 +421,8 @@
 
     html += '</tbody></table>';
     $('chainWrap').innerHTML = html;
-
-    /* --- 单元格点击下单 --- */
-    $('chainWrap').querySelectorAll('.cell-c').forEach(td => {
-      td.onclick = () => {
-        const sym = td.dataset.sym;
-        if (!sym) return;
-        selectContract(sym, td.dataset.side);
-      };
-    });
+    // 单元格点击由 initDelegatedEvents() 统一委托到 #chainWrap，
+    // 这里不再逐个绑定（SPX 一次重绘会有 200+ 个单元格）。
 
     $('chainMeta').textContent = rows.length + ' 档行权价 · '
       + '认购持仓 ' + bigNum(exp.stats.callOI) + ' · 认沽持仓 ' + bigNum(exp.stats.putOI)
@@ -619,7 +657,7 @@
     toast(verb + '成功：' + (side === 'buy' ? '买入' : '卖出') + ' ' + qty + ' 张 @ '
       + fmt(res.fillPrice) + (res.realized ? '，已实现盈亏 ' + money(res.realized) : ''), 'ok');
     if (res.warn) toast(res.warn, 'warn');
-    renderAll();
+    refresh.account();
   }
 
   /* ================================================================== *
@@ -721,10 +759,7 @@
       html += '<div class="hint" style="padding:6px 12px">* 该合约不在当前显示的期权链中，按开仓价估值。切换到对应标的可获取实时价格。</div>';
     }
     $('posTable').innerHTML = html;
-
-    $('posTable').querySelectorAll('[data-close]').forEach(b => {
-      b.onclick = () => closePosition(b.dataset.close);
-    });
+    // 平仓按钮的点击由 initDelegatedEvents() 委托处理
   }
 
   function card(lbl, val, sub, klass) {
@@ -756,7 +791,7 @@
     if (!res.ok) { toast(res.error, 'err'); return; }
     toast('平仓成功 @ ' + fmt(res.fillPrice) + '，已实现盈亏 ' + money(res.realized),
       res.realized >= 0 ? 'ok' : 'err');
-    renderAll();
+    refresh.account();
   }
 
   /* ================================================================== *
@@ -988,16 +1023,17 @@
     },
   ];
 
+  /**
+   * 策略卡片列表。
+   * 这里用 tpl 模板函数示范推荐写法：结构直观、插值自动转义。
+   * 卡片点击由 initDelegatedEvents() 委托，靠 data-id 识别。
+   */
   function renderStrategies() {
-    $('stratList').innerHTML = STRATEGIES.map(s =>
-      '<div class="strat-card" data-id="' + s.id + '">'
-      + '<div class="nm">' + esc(s.name) + '<span class="bias bias-' + s.bias + '">' + s.biasLabel + '</span></div>'
-      + '<div class="ds">' + esc(s.desc) + '</div>'
-      + '</div>').join('');
-
-    $('stratList').querySelectorAll('.strat-card').forEach(c => {
-      c.onclick = () => openStrategy(c.dataset.id);
-    });
+    $('stratList').innerHTML = STRATEGIES.map(s => tpl`
+      <div class="strat-card" data-id="${s.id}">
+        <div class="nm">${s.name}<span class="bias bias-${s.bias}">${s.biasLabel}</span></div>
+        <div class="ds">${s.desc}</div>
+      </div>`).join('');
   }
 
   let stratState = null;
@@ -1241,7 +1277,7 @@
     $('stratModal').classList.remove('show');
     if (errMsg) toast('建仓中断（已成交 ' + okCount + ' 腿）：' + errMsg, 'err');
     else toast(st.strat.name + ' 建仓成功，共 ' + okCount + ' 条腿', 'ok');
-    renderAll();
+    refresh.account();
   }
 
   /* ================================================================== *
@@ -1294,18 +1330,98 @@
   }
 
   /* ================================================================== *
-   * 总渲染
+   * 刷新调度
+   *
+   * 界面由 8 个相互独立的区块组成，各自的数据来源并不相同：
+   *
+   *   区块            依赖
+   *   ─────────────────────────────────────────────
+   *   quote          期权链快照
+   *   expiries       期权链快照
+   *   chain          期权链快照 + 定价参数 + 持仓标记
+   *   order          选中合约 + 报价 + 持仓（显示"已持 N 张"）
+   *   chainStats     当前到期日（IV 微笑、OI 分布）
+   *   positions      账户
+   *   risk           账户 + 期权链（盯市要用最新报价）
+   *   log            账户
+   *
+   * 早先的做法是任何变化都调 renderAll() 全量重画。代价有两处：
+   *   1. 性能 —— SPX 有 116 行 × 17 列，加上 5 个 Canvas 图表，
+   *      一次下单要重建整张表并重绘全部图表
+   *   2. 体感 —— 重建 chainWrap 的 innerHTML 会让表格滚动位置归零，
+   *      下单后视图跳回顶部
+   *
+   * 因此按「变化源」拆成下面几个入口，各自只碰必要的区块。
+   * 新增区块时，把它挂到对应的变化源下即可，不要再退回全量刷新。
    * ================================================================== */
-  function renderAll() {
-    if (!S.chain) return;
-    renderQuote();
-    renderExpiries();
-    renderChain();
-    renderOrder();
-    renderChainStats();
-    renderPositions();
-    renderRisk();
-    renderLog();
+  const refresh = {
+    /**
+     * 期权链数据或定价参数变化：换标的、切到期日、改设置。
+     * 此时所有区块的输入都可能变了，只能全刷。
+     */
+    all() {
+      if (!S.chain) return;
+      renderQuote();
+      renderExpiries();
+      renderChain();
+      renderOrder();
+      renderChainStats();
+      renderPositions();
+      renderRisk();
+      renderLog();
+    },
+
+    /**
+     * 账户变化：下单、平仓、策略建仓、到期结算。
+     *
+     * 期权链的报价没变，只有「哪些合约有持仓」这一点变了，
+     * 因此不重建表格，只同步标记 —— 顺带保住了滚动位置。
+     */
+    account() {
+      if (!S.chain) return;
+      syncChainPositionMarks();
+      renderOrder();      // 面板顶部要显示"已持 N 张"
+      renderPositions();
+      renderRisk();
+      renderLog();
+    },
+
+    /**
+     * 只有期权链表格需要重画：切换希腊字母列、平值范围、IV 来源。
+     * 账户与图表不受影响。
+     */
+    chainOnly() {
+      if (!S.chain) return;
+      renderChain();
+    },
+
+    /**
+     * 窗口尺寸变化。
+     * Canvas 的像素尺寸取自容器宽度，必须重绘；DOM 结构无需重建，
+     * 但图表绘制逻辑目前内嵌在各 render 函数中，因此重跑这几个区块。
+     */
+    charts() {
+      if (!S.chain) return;
+      renderOrder();
+      renderChainStats();
+      renderRisk();
+    },
+  };
+
+  /**
+   * 同步期权链上的持仓标记（右上角小圆点）。
+   *
+   * 只增删 class，不触碰 innerHTML —— 这是保住滚动位置的关键。
+   * 标记打在买价单元格上，与 renderChain 中的渲染逻辑保持一致。
+   */
+  function syncChainPositionMarks() {
+    const held = new Set(S.account.positions.map(p => p.symbol));
+    $('chainWrap')
+      .querySelectorAll('td.cell-c[data-side="buy"]')
+      .forEach(td => {
+        const sym = td.dataset.sym;
+        td.classList.toggle('has-pos', Boolean(sym) && held.has(sym));
+      });
   }
 
   /* ================================================================== *
@@ -1358,6 +1474,48 @@
   }
 
   /* ================================================================== *
+   * 事件委托
+   *
+   * 期权链与到期日条的内容会被反复重建（SPX 一次重绘 200+ 个单元格）。
+   * 若在每次渲染后逐元素绑定 onclick，不仅有开销，更容易出现
+   * 「重建后忘记重绑 → 点击静默失效」这类难查的问题。
+   *
+   * 改为在稳定的父容器上各绑一次，靠 closest() 找到被点的目标。
+   * 新增可点击元素时，只要带上约定的 data-* 属性即可，无需再动绑定代码。
+   * ================================================================== */
+  function initDelegatedEvents() {
+    // 期权链：点击买价/卖价单元格选中合约
+    $('chainWrap').addEventListener('click', (e) => {
+      const td = e.target.closest('td.cell-c');
+      if (!td || !td.dataset.sym) return;
+      selectContract(td.dataset.sym, td.dataset.side);
+    });
+
+    // 到期日选择条
+    $('expiryBar').addEventListener('click', (e) => {
+      const chip = e.target.closest('.exp-chip');
+      if (!chip) return;
+      S.expiryIdx = Number(chip.dataset.i);
+      S.selected = null;
+      refresh.all();
+    });
+
+    // 持仓列表：平仓按钮（列表随账户变化重建，同样适合委托）
+    $('posTable').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-close]');
+      if (!btn) return;
+      closePosition(btn.dataset.close);
+    });
+
+    // 策略卡片
+    $('stratList').addEventListener('click', (e) => {
+      const card = e.target.closest('.strat-card');
+      if (!card) return;
+      openStrategy(card.dataset.id);
+    });
+  }
+
+  /* ================================================================== *
    * 设置
    * ================================================================== */
   function openSettings() {
@@ -1385,7 +1543,7 @@
     S.rates = {};
     $('settingsModal').classList.remove('show');
     toast('设置已保存', 'ok');
-    renderAll();
+    refresh.all();
   }
 
   /* ================================================================== *
@@ -1402,11 +1560,11 @@
       };
     });
 
-    /* 工具栏 */
+    /* 工具栏：只改变期权链的呈现方式，账户与图表不受影响 */
     ['cbNearAtm', 'cbGreeks', 'cbOi', 'ivSource'].forEach(id => {
-      $(id).onchange = () => { renderChain(); };
+      $(id).onchange = () => refresh.chainOnly();
     });
-    $('atmRange').oninput = () => renderChain();
+    $('atmRange').oninput = () => refresh.chainOnly();
 
     /* 设置 */
     $('btnSettings').onclick = openSettings;
@@ -1417,7 +1575,7 @@
       S.account.reset(+$('setCash').value || undefined);
       $('settingsModal').classList.remove('show');
       toast('账户已重置', 'ok');
-      renderAll();
+      refresh.all();
     };
 
     /* 策略弹窗 */
@@ -1430,7 +1588,7 @@
       if (S.chain) spotMap[S.chain.symbol] = S.chain.underlying.last;
       const r = S.account.settleExpired(spotMap);
       if (!r.count) toast('没有已到期的持仓', 'warn');
-      else { toast('已结算 ' + r.count + ' 个到期持仓，盈亏 ' + money(r.pnl), 'ok'); renderAll(); }
+      else { toast('已结算 ' + r.count + ' 个到期持仓，盈亏 ' + money(r.pnl), 'ok'); refresh.account(); }
     };
     $('btnCloseAll').onclick = () => {
       const list = S.account.positions.slice();
@@ -1454,7 +1612,7 @@
       });
       toast('已平仓 ' + n + ' 个持仓' + (n < list.length ? '（部分合约不在当前链中，需切换标的）' : ''),
         n === list.length ? 'ok' : 'warn');
-      renderAll();
+      refresh.account();
     };
 
     /* 弹窗背景点击关闭 */
@@ -1466,9 +1624,10 @@
     let rt = null;
     window.addEventListener('resize', () => {
       clearTimeout(rt);
-      rt = setTimeout(() => { if (S.chain) renderAll(); }, 220);
+      rt = setTimeout(() => refresh.charts(), 220);
     });
 
+    initDelegatedEvents();
     initSearch();
     renderStrategies();
 

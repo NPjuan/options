@@ -12,7 +12,8 @@
     "test:math": "node test/verify.js",
     "test:account": "node test/acct-test.js",
     "test:calendar": "node test/cal-test.js",
-    "test:api": "node test/api-test.js"
+    "test:api": "node test/api-test.js",
+    "test:ui": "node test/ui-refresh-test.js"
   },
   "keywords": [
     "options",
