@@ -2,6 +2,8 @@
 
 接入 CBOE 官方延迟报价的期权模拟交易器。真实期权链、真实希腊字母、完整下单与风险管理。
 
+线上体验：https://options-weld.vercel.app
+
 零第三方依赖 —— 仅用 Node 内置模块，前端手写 Canvas 图表，无构建步骤。
 
 ## 快速开始
@@ -57,8 +59,31 @@ vercel --prod   # 生产环境
 
 **入口文件不能被忽略。** 平台把本项目识别为 Node 服务应用，会按
 `package.json` 的 `main` 找入口。若移除 `main`、或在 `.vercelignore`
-里排除了 `server.js`，就会报 `No entrypoint found`，静态资源也随之全部 404。
+里排除了 `server.js`，就会报 `No entrypoint found`。
 `main: "server.js"` 与 `start` 脚本都要保留。
+
+**运行时读取的文件必须显式声明。** 这是本项目部署中最隐蔽的一个坑：
+平台按 `require` 图做静态分析来决定打包哪些文件，而 `index.html`、
+`style.css`、`js/*.js` 都是运行时用 `fs.readFile` 读的，
+分析器看不到它们，于是不会进产物 —— 表现为 API 正常但**所有静态资源 404**。
+
+解决办法是在 `vercel.json` 里用 `builds.config.includeFiles` 显式列出，
+并用 `routes` 把全部请求指向 `server.js`：
+
+```json
+{
+  "builds": [{
+    "src": "server.js",
+    "use": "@vercel/node",
+    "config": { "includeFiles": ["index.html", "style.css", "js/**", "lib/**"] }
+  }],
+  "routes": [{ "src": "/(.*)", "dest": "/server.js" }]
+}
+```
+
+同时 `server.js` 不再假设 `__dirname` 等于仓库根，而是逐候选目录探测
+`index.html` 的真实位置（线上实测为 `/var/task`）。
+`/api/health` 会返回 `root` 与 `staticOk` 两个字段，出问题时可一眼定位。
 
 ## 数据来源
 
